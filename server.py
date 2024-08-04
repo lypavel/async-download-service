@@ -11,13 +11,16 @@ async def archive(request):
     await response.prepare(request)
 
     archive_hash = request.match_info.get('archive_hash')
+    images_path = Path(f'test_photos/{archive_hash}')
+    if not images_path.exists():
+        raise web.HTTPNotFound(text='Архив не существует или был удалён.')
 
     process = await asyncio.create_subprocess_exec(
         'zip',
         '-r',
         '-',
         '.',
-        cwd=Path(f'test_photos/{archive_hash}'),
+        cwd=images_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
