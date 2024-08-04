@@ -1,7 +1,15 @@
 import asyncio
-from aiohttp import web
 import aiofiles
+from aiohttp import web
+import logging
 from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(name)s][%(levelname)s]: %(message)s'
+)
+
+logger = logging.getLogger(__file__)
 
 
 async def archive(request):
@@ -25,11 +33,16 @@ async def archive(request):
         stderr=asyncio.subprocess.PIPE
     )
 
-    while True:
-        stdout = await process.stdout.read(n=512000)
-        if process.stdout.at_eof():
-            return response
-        await response.write(stdout)
+    try:
+        while True:
+            stdout = await process.stdout.read(n=512000)
+            logger.info('Sending archive chunk...')
+            if process.stdout.at_eof():
+                return response
+            await response.write(stdout)
+    except asyncio.CancelledError:
+        logger.error('Download was interrupted')
+        raise
 
 
 async def handle_index_page(request):
