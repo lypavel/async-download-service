@@ -1,15 +1,17 @@
 import asyncio
-import aiofiles
-from aiohttp import web
 import logging
 from pathlib import Path
+
+import aiofiles
+from aiohttp import web
+from environs import Env
 
 logging.basicConfig(
     level=logging.INFO,
     format='[%(name)s][%(levelname)s]: %(message)s'
 )
 
-logger = logging.getLogger(__file__)
+logger = logging.getLogger(Path(__file__).name)
 
 
 async def archive(request):
@@ -19,8 +21,8 @@ async def archive(request):
     await response.prepare(request)
 
     archive_hash = request.match_info.get('archive_hash')
-    images_path = Path(f'test_photos/{archive_hash}')
-    if not images_path.exists():
+    photos_path = Path(env.str('PHOTOS_DIRECTORY'), archive_hash)
+    if not photos_path.exists():
         raise web.HTTPNotFound(text='Архив не существует или был удалён.')
 
     process = await asyncio.create_subprocess_exec(
@@ -28,21 +30,35 @@ async def archive(request):
         '-r',
         '-',
         '.',
-        cwd=images_path,
+        cwd=photos_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
 
+    response_delay = env.int('RESPONSE_DELAY', 0)
+    chunk_size = env.int('CHUNK_SIZE', 500 * 1024)
     try:
         while True:
-            stdout = await process.stdout.read(n=512000)
+            await asyncio.sleep(response_delay)
+
+            stdout = await process.stdout.read(n=chunk_size)
             logger.info('Sending archive chunk...')
+
             if process.stdout.at_eof():
                 return response
+
             await response.write(stdout)
     except asyncio.CancelledError:
         logger.error('Download was interrupted')
         raise
+    except SystemExit as system_exit:
+        logger.exception(system_exit)
+    except Exception as exception:
+        logger.exception(exception)
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.communicate()
 
 
 async def handle_index_page(request):
@@ -52,9 +68,18 @@ async def handle_index_page(request):
 
 
 if __name__ == '__main__':
+    env = Env()
+    env.read_env()
+
+    if not env.bool('LOGGING', True):
+        logger.disabled = True
+
+    host = env.str('SERVICE_HOST', '127.0.0.1')
+    port = env.int('SERVICE_PORT', 8080)
+
     app = web.Application()
     app.add_routes([
         web.get('/', handle_index_page),
         web.get('/archive/{archive_hash}/', archive),
     ])
-    web.run_app(app, host='0.0.0.0', port=8000)
+    web.run_app(app, host=host, port=port)
