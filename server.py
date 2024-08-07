@@ -22,7 +22,7 @@ async def archive(request):
 
     archive_hash = request.match_info.get('archive_hash')
     photos_path = Path(env.str('PHOTOS_DIRECTORY'), archive_hash)
-    if not photos_path.exists():
+    if not photos_path.exists() or archive_hash is None:
         raise web.HTTPNotFound(text='Архив не существует или был удалён.')
 
     process = await asyncio.create_subprocess_exec(
@@ -38,16 +38,15 @@ async def archive(request):
     response_delay = env.int('RESPONSE_DELAY', 0)
     chunk_size = env.int('CHUNK_SIZE', 500 * 1024)
     try:
-        while True:
+        while not process.stdout.at_eof():
             await asyncio.sleep(response_delay)
 
             stdout = await process.stdout.read(n=chunk_size)
             logger.info('Sending archive chunk...')
 
-            if process.stdout.at_eof():
-                return response
-
             await response.write(stdout)
+
+        return response
     except asyncio.CancelledError:
         logger.error('Download was interrupted')
         raise
