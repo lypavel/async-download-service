@@ -15,15 +15,20 @@ logger = logging.getLogger(Path(__file__).name)
 
 
 async def archive(request):
+    archive_hash = request.match_info.get('archive_hash')
+    if archive_hash is None:
+        raise web.HTTPInternalServerError(
+            text='Невозможно получить хэш архива.'
+        )
+
+    photos_path = Path(env.str('PHOTOS_DIRECTORY'), archive_hash)
+    if not photos_path.exists():
+        raise web.HTTPNotFound(text='Архив не существует или был удалён.')
+
     response = web.StreamResponse()
     response.headers['Content-Disposition'] = 'attachment; \
         filename="archive.zip"'
     await response.prepare(request)
-
-    archive_hash = request.match_info.get('archive_hash')
-    photos_path = Path(env.str('PHOTOS_DIRECTORY'), archive_hash)
-    if not photos_path.exists() or archive_hash is None:
-        raise web.HTTPNotFound(text='Архив не существует или был удалён.')
 
     process = await asyncio.create_subprocess_exec(
         'zip',
